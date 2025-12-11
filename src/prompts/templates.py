@@ -156,6 +156,7 @@ class PromptTemplates:
     
                 {{
                   "title": "{slide_title}",
+                  "page_number": {page_number},
                   "content": [
                     "要点1:清晰表述核心观点",
                     "要点2:用数据或案例支撑",
@@ -222,6 +223,7 @@ class PromptTemplates:
                 【输出格式】
                 {{
                   "title": "结束页标题(如:'总结与展望')",
+                  "page_number": -1,
                   "content": [
                     "核心结论1",
                     "核心结论2",
@@ -317,6 +319,7 @@ class PromptTemplates:
         return guidelines.get(style, guidelines["professional"])
 
 
+    @staticmethod
     # 快捷函数
     def create_outline_prompt(topic: str, num_slides: int = 10, style: str = "professional") -> tuple:
         """
@@ -331,6 +334,7 @@ class PromptTemplates:
         )
 
 
+    @staticmethod
     def create_content_prompt(
             slide_info: dict,
             overall_topic: str,
