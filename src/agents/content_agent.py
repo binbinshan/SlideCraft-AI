@@ -6,9 +6,8 @@ import re
 import time
 from typing import Dict, List, Optional
 from openai import OpenAI
-import httpx
 
-from ..prompts.templates import PromptTemplates
+from prompts.templates import PromptTemplates
 
 
 class ContentAgent:
