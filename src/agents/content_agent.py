@@ -6,7 +6,7 @@ import re
 import time
 from typing import Dict, List, Optional
 from openai import OpenAI
-
+from utils.helpers import parse_json_response
 from prompts.templates import PromptTemplates
 
 
@@ -30,6 +30,10 @@ class ContentAgent:
         """
         self.model = model
         self.max_retries = max_retries
+
+        # 保存最后生成的大纲和内容
+        self.last_outline = None
+        self.last_contents = None
 
         # 创建客户端
 
@@ -75,7 +79,7 @@ class ContentAgent:
                 response_text = response.choices[0].message.content.strip()
 
                 # 清理JSON
-                outline = self._parse_json_response(response_text)
+                outline = parse_json_response(response_text)
 
                 # 验证大纲格式
                 self._validate_outline(outline, num_slides)
@@ -127,7 +131,7 @@ class ContentAgent:
         if slide_type == "cover":
             return self._generate_cover_content(slide_info, overall_topic)
         elif slide_type == "conclusion":
-            return self._generate_conclusion_content(slide_info, overall_topic)
+            return self._generate_conclusion_content(slide_info, overall_topic, total_pages)
         else:
             return self._generate_content_page(slide_info, overall_topic, total_pages, style)
 
@@ -141,11 +145,12 @@ class ContentAgent:
             "type": "cover"
         }
 
-    def _generate_conclusion_content(self, slide_info: Dict, topic: str) -> Dict:
+    def _generate_conclusion_content(self, slide_info: Dict, topic: str, total_pages: int) -> Dict:
         """生成结束页内容"""
         prompt = PromptTemplates.get_conclusion_prompt(
             topic,
-            []  # 这里可以传入关键要点
+            [],  # 这里可以传入关键要点
+            total_pages
         )
 
         try:
@@ -160,7 +165,7 @@ class ContentAgent:
             )
 
             response_text = response.choices[0].message.content.strip()
-            content = self._parse_json_response(response_text)
+            content = parse_json_response(response_text)
             content["type"] = "conclusion"
             return content
 
@@ -200,7 +205,7 @@ class ContentAgent:
                 )
 
                 response_text = response.choices[0].message.content.strip()
-                content = self._parse_json_response(response_text)
+                content = parse_json_response(response_text)
                 content["type"] = "content"
                 return content
 
@@ -250,7 +255,7 @@ class ContentAgent:
             )
 
             response_text = response.choices[0].message.content.strip()
-            modified_content = self._parse_json_response(response_text)
+            modified_content = parse_json_response(response_text)
 
             print(f"✅ 内容修改完成")
             return modified_content
@@ -259,23 +264,6 @@ class ContentAgent:
             print(f"❌ 修改失败: {str(e)}")
             return original_content
 
-    def _parse_json_response(self, response_text: str) -> Dict:
-        """
-        解析JSON响应,处理各种格式问题
-
-        Args:
-            response_text: 原始响应文本
-
-        Returns:
-            解析后的字典
-        """
-        # 移除markdown标记
-        text = re.sub(r'^```json\s*|\s*```$', '', response_text, flags=re.MULTILINE)
-        text = re.sub(r'^```\s*|\s*```$', '', text, flags=re.MULTILINE)
-        text = text.strip()
-
-        # 尝试解析
-        return json.loads(text)
 
     def _validate_outline(self, outline: Dict, expected_slides: int) -> None:
         """

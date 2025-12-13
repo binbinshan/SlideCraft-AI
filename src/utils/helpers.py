@@ -1,6 +1,7 @@
 """
 工具函数集合
 """
+import re
 import os
 import json
 from typing import Dict, List, Any
@@ -16,6 +17,24 @@ def ensure_dir(directory: str) -> None:
     """
     os.makedirs(directory, exist_ok=True)
 
+
+def parse_json_response(response_text: str) -> Dict:
+    """
+    解析JSON响应,处理各种格式问题
+
+    Args:
+        response_text: 原始响应文本
+
+    Returns:
+        解析后的字典
+    """
+    # 移除markdown标记
+    text = re.sub(r'^```json\s*|\s*```$', '', response_text, flags=re.MULTILINE)
+    text = re.sub(r'^```\s*|\s*```$', '', text, flags=re.MULTILINE)
+    text = text.strip()
+
+    # 尝试解析
+    return json.loads(text)
 
 def save_json(data: Dict, filepath: str, indent: int = 2) -> None:
     """

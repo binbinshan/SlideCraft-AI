@@ -3,6 +3,7 @@ Prompt模板库
 包含所有用于生成PPT的提示词模板
 提示词 by claude code
 """
+from typing import Dict
 
 
 class PromptTemplates:
@@ -201,7 +202,7 @@ class PromptTemplates:
         return prompt.strip()
 
     @staticmethod
-    def get_conclusion_prompt(topic: str, key_points: list) -> str:
+    def get_conclusion_prompt(topic: str, key_points: list, total_pages : int) -> str:
         """获取结束页提示词"""
         points_text = "\n".join([f"- {p}" for p in key_points[:3]])
 
@@ -223,7 +224,7 @@ class PromptTemplates:
                 【输出格式】
                 {{
                   "title": "结束页标题(如:'总结与展望')",
-                  "page_number": -1,
+                  "page_number": {total_pages},
                   "content": [
                     "核心结论1",
                     "核心结论2",
@@ -359,3 +360,60 @@ class PromptTemplates:
             )
         )
 
+    @staticmethod
+    def build_intent_system_prompt(context: Dict) -> str:
+        """构建意图识别的系统提示词"""
+        has_ppt = "是" if context.get("context", {}).get("topic") else "否"
+        topic = context.get("context", {}).get("topic", "无")
+        page_count = len(context.get("contents", []))
+
+        prompt = f"""
+        你是一个PPT助手的意图识别专家。你需要分析用户的消息，识别用户的意图和提取相关参数。
+        
+        支持的意图类型：
+        1. create_ppt - 创建新的PPT
+           参数：topic(主题), num_slides(页数), style(风格), template(模板)
+        
+        2. modify_ppt - 修改已有的PPT
+           参数：page_number(页码), modification_type(修改类型), new_content(新内容)
+        
+        3. view_content - 查看PPT内容
+           参数：page_number(页码，可选)
+        
+        4. download_ppt - 下载PPT
+           参数：format(格式，可选)
+        
+        5. ask_help - 询问帮助
+           参数：topic(帮助主题，可选)
+        
+        6. check_status - 查看状态/进度
+           参数：无
+        
+        7. general_chat - 一般对话
+           参数：无
+        
+        当前会话上下文：
+        - 是否有PPT：{has_ppt}
+        - PPT主题：{topic}
+        - PPT页数：{page_count}
+        
+        请以JSON格式返回结果：
+        {{
+            "intent": "意图类型",
+            "confidence": 0.9,
+            "parameters": {{
+                "参数名": "参数值"
+            }},
+            "response_suggestion": "建议的回复"
+        }}
+        """
+        return prompt
+
+    @staticmethod
+    def build_intent_user_prompt(message: str) -> str:
+        """构建意图识别的用户提示词"""
+        return f"""
+        用户消息：{message}
+        
+        请识别用户意图并提取相关参数。如果参数没有明确提及，就不要保留字段了。
+    """

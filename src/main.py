@@ -102,6 +102,9 @@ class SlideCrafter:
             print("\n📝 步骤 1/3: 生成大纲...")
             outline = self.agent.generate_outline(topic, num_slides, style)
 
+            # 保存大纲到 agent 属性
+            self.agent.last_outline = outline
+
             print(f"\n{summarize_outline(outline)}")
 
             if save_intermediate:
@@ -128,6 +131,9 @@ class SlideCrafter:
 
             print(f"\n{create_progress_bar(total_slides, total_slides)}")
             print("✅ 所有内容生成完成!")
+
+            # 保存内容到 agent 属性
+            self.agent.last_contents = contents
 
             if save_intermediate:
                 contents_path = f"output/logs/contents_{timestamp}.json"

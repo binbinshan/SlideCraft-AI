@@ -73,3 +73,5 @@ pnpm-lock.yaml
 *.iml
 *.iws
 .out/
+
+output
