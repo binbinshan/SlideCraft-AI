@@ -71,7 +71,7 @@ slidecrafter-ai/
 ## 开发计划
 
 - [x] Week 1: 环境搭建
-- [ ] Week 2-3: 核心功能
+- [x] Week 2-3: 核心功能
 - [ ] Week 4: 界面开发
 - [ ] Week 5-6: 功能增强
 - [ ] Week 7: Agent智能化
