@@ -36,16 +36,16 @@ class SlideCrafter:
         初始化SlideCrafter
 
         Args:
-            api_key: OpenAI API密钥
+            api_key: API密钥
             model: 模型名称
             log_file: 日志文件路径
         """
-        # API配置
-        self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
+        # API配置 - 优先使用DeepSeek
+        self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")
         self.model = model or os.getenv("OPENAI_MODEL", "deepseek-chat")
 
         if not self.api_key:
-            raise ValueError("请设置OPENAI_API_KEY环境变量或传入api_key参数")
+            raise ValueError("请设置DEEPSEEK_API_KEY或OPENAI_API_KEY环境变量")
 
         # 初始化组件
         self.agent = ContentAgent(
@@ -58,6 +58,7 @@ class SlideCrafter:
         # 确保输出目录存在
         ensure_dir("output")
         ensure_dir("output/logs")
+        ensure_dir("output/image_cache")
 
         self.logger.info("SlideCrafter初始化完成")
 
@@ -67,7 +68,8 @@ class SlideCrafter:
             num_slides: int = 10,
             style: str = "professional",
             template: str = "business",
-            save_intermediate: bool = True
+            save_intermediate: bool = True,
+            add_images: bool = False
     ) -> str:
         """
         生成完整的PPT
@@ -78,6 +80,7 @@ class SlideCrafter:
             style: 内容风格
             template: 模板样式
             save_intermediate: 是否保存中间结果
+            add_images: 是否添加配图
 
         Returns:
             生成的PPT文件路径
@@ -92,14 +95,21 @@ class SlideCrafter:
         print(f"📊 页数: {num_slides}")
         print(f"🎨 风格: {style}")
         print(f"📄 模板: {template}")
-        print(f"⏱️  预计时间: {format_time(estimate_generation_time(num_slides))}")
+        print(f"🖼️  配图: {'是' if add_images else '否'}")
+
+        # 计算预计时间
+        estimated_time = estimate_generation_time(num_slides)
+        if add_images:
+            estimated_time += num_slides * 3  # 每页配图约3秒
+        print(f"⏱️  预计时间: {format_time(estimated_time)}")
         print("=" * 80)
 
-        self.logger.info(f"开始生成PPT: {topic}")
+        self.logger.info(f"开始生成PPT: {topic} (配图: {add_images})")
 
         try:
             # 步骤1: 生成大纲
-            print("\n📝 步骤 1/3: 生成大纲...")
+            total_steps = 4 if add_images else 3
+            print(f"\n📝 步骤 1/{total_steps}: 生成大纲...")
             outline = self.agent.generate_outline(topic, num_slides, style)
 
             # 保存大纲到 agent 属性
@@ -113,7 +123,7 @@ class SlideCrafter:
                 self.logger.info(f"大纲已保存: {outline_path}")
 
             # 步骤2: 生成内容
-            print(f"\n📝 步骤 2/3: 生成各页内容...")
+            print(f"\n📝 步骤 2/{total_steps}: 生成各页内容...")
             contents = []
             total_slides = len(outline["slides"])
 
@@ -140,10 +150,46 @@ class SlideCrafter:
                 save_json(contents, contents_path)
                 self.logger.info(f"内容已保存: {contents_path}")
 
-            # 步骤3: 创建PPT
-            print(f"\n📝 步骤 3/3: 创建PPT文件...")
+            # 步骤3: 搜索配图(如果启用)
+            images = []
+            if add_images:
+                print(f"\n📝 步骤 3/{total_steps}: 搜索配图...")
+                from agents.image_agent import ImageAgent
+                image_agent = ImageAgent()
+
+                for i, (slide_info, content) in enumerate(zip(outline["slides"], contents), 1):
+                    slide_type = content.get("type", "content")
+
+                    # 只为内容页添加图片
+                    if slide_type == "content":
+                        print(f"   第{i}页: {content.get('title', '')}")
+
+                        try:
+                            image_path = image_agent.get_image_for_slide(
+                                content.get("title", ""),
+                                content.get("content", []),
+                                topic
+                            )
+                            images.append(image_path)
+                        except Exception as e:
+                            print(f"      ⚠️  配图失败: {str(e)}")
+                            images.append(None)
+                    else:
+                        images.append(None)
+
+                img_count = sum(1 for img in images if img)
+                print(f"✅ 配图搜索完成! (成功: {img_count}/{len([c for c in contents if c.get('type') == 'content'])})")
+            else:
+                print(f"\n📝 步骤 3/{total_steps}: 跳过配图...")
+
+            # 步骤4: 创建PPT
+            print(f"\n📝 步骤 {total_steps}/{total_steps}: 创建PPT文件...")
             generator = PPTGenerator(template=template)
-            ppt_path = generator.create_presentation(outline, contents)
+            ppt_path = generator.create_presentation(
+                outline,
+                contents,
+                images if add_images else None
+            )
 
             # 完成
             elapsed_time = time.time() - start_time
@@ -153,6 +199,9 @@ class SlideCrafter:
             print(f"📁 文件位置: {ppt_path}")
             print(f"⏱️  用时: {format_time(int(elapsed_time))}")
             print(f"📊 总页数: {len(contents)}")
+            if add_images:
+                img_count = sum(1 for img in images if img)
+                print(f"🖼️  配图数: {img_count}")
             print("=" * 80)
 
             self.logger.info(f"PPT生成成功: {ppt_path} (用时: {int(elapsed_time)}秒)")
@@ -162,6 +211,8 @@ class SlideCrafter:
         except Exception as e:
             self.logger.error(f"PPT生成失败: {str(e)}")
             print(f"\n❌ 生成失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
             raise
 
     def modify_slide(
@@ -223,6 +274,10 @@ def main():
                         help="模板样式")
     parser.add_argument("--no-save-intermediate", action="store_true",
                         help="不保存中间结果")
+    parser.add_argument("--add-images", action="store_true",
+                        help="自动添加配图")
+    parser.add_argument("--use-proxy", action="store_true",
+                        help="使用代理")
 
     args = parser.parse_args()
 
@@ -237,7 +292,8 @@ def main():
         num_slides=args.num_slides,
         style=args.style,
         template=args.template,
-        save_intermediate=not args.no_save_intermediate
+        save_intermediate=not args.no_save_intermediate,
+        add_images=args.add_images
     )
 
 

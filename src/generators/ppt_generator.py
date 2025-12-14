@@ -1,6 +1,8 @@
 """
+PPTGenerator - PPT文件生成器
 支持多种模板和样式
 """
+import os
 from typing import Dict, List, Optional
 from pptx import Presentation
 from pptx.util import Inches, Pt, Cm
@@ -18,10 +20,10 @@ class PPTTemplate:
         "slide_width": Inches(10),
         "slide_height": Inches(5.625),
         "colors": {
-            "primary": RGBColor(31, 78, 120),  # 深蓝
-            "secondary": RGBColor(68, 114, 196),  # 蓝色
-            "accent": RGBColor(237, 125, 49),  # 橙色
-            "text": RGBColor(0, 0, 0),  # 黑色
+            "primary": RGBColor(31, 78, 120),      # 深蓝
+            "secondary": RGBColor(68, 114, 196),   # 蓝色
+            "accent": RGBColor(237, 125, 49),      # 橙色
+            "text": RGBColor(0, 0, 0),             # 黑色
             "background": RGBColor(255, 255, 255)  # 白色
         },
         "fonts": {
@@ -40,10 +42,10 @@ class PPTTemplate:
         "slide_width": Inches(10),
         "slide_height": Inches(5.625),
         "colors": {
-            "primary": RGBColor(230, 57, 70),  # 红色
+            "primary": RGBColor(230, 57, 70),      # 红色
             "secondary": RGBColor(241, 250, 238),  # 浅绿
-            "accent": RGBColor(255, 211, 105),  # 黄色
-            "text": RGBColor(41, 50, 65),  # 深灰
+            "accent": RGBColor(255, 211, 105),     # 黄色
+            "text": RGBColor(41, 50, 65),          # 深灰
             "background": RGBColor(255, 255, 255)
         },
         "fonts": {
@@ -62,9 +64,9 @@ class PPTTemplate:
         "slide_width": Inches(10),
         "slide_height": Inches(5.625),
         "colors": {
-            "primary": RGBColor(44, 62, 80),  # 深灰蓝
-            "secondary": RGBColor(52, 73, 94),  # 灰蓝
-            "accent": RGBColor(192, 57, 43),  # 深红
+            "primary": RGBColor(44, 62, 80),       # 深灰蓝
+            "secondary": RGBColor(52, 73, 94),     # 灰蓝
+            "accent": RGBColor(192, 57, 43),       # 深红
             "text": RGBColor(0, 0, 0),
             "background": RGBColor(255, 255, 255)
         },
@@ -105,13 +107,19 @@ class PPTGenerator:
 
         print(f"📄 使用模板: {self.template['name']}")
 
-    def create_presentation(self, outline: Dict, contents: List[Dict]) -> str:
+    def create_presentation(
+        self,
+        outline: Dict,
+        contents: List[Dict],
+        images: List[str] = None
+    ) -> str:
         """
         创建完整的PPT
 
         Args:
             outline: 大纲(包含title, slides等)
             contents: 各页内容列表
+            images: 各页图片路径列表(可选)
 
         Returns:
             保存的文件路径
@@ -120,11 +128,16 @@ class PPTGenerator:
 
         for i, slide_info in enumerate(outline["slides"]):
             if i >= len(contents):
-                print(f"   ⚠️  警告: 内容不足,跳过第{i + 1}页")
+                print(f"   ⚠️  警告: 内容不足,跳过第{i+1}页")
                 break
 
             content = contents[i]
             slide_type = content.get("type", "content")
+
+            # 获取对应的图片路径
+            image_path = None
+            if images and i < len(images):
+                image_path = images[i]
 
             # 根据类型添加幻灯片
             if slide_type == "cover":
@@ -132,9 +145,9 @@ class PPTGenerator:
             elif slide_type == "conclusion":
                 self.add_conclusion_slide(content)
             else:
-                self.add_content_slide(content)
+                self.add_content_slide(content, image_path)
 
-            print(f"   ✅ 第{i + 1}页: {content.get('title', '')}")
+            print(f"   ✅ 第{i+1}页: {content.get('title', '')}")
 
         # 保存文件
         filename = self._sanitize_filename(outline["title"])
@@ -198,12 +211,13 @@ class PPTGenerator:
         subtitle_para.font.color.rgb = colors["text"]
         subtitle_para.alignment = PP_ALIGN.CENTER
 
-    def add_content_slide(self, content: Dict) -> None:
+    def add_content_slide(self, content: Dict, image_path: str = None) -> None:
         """
         添加内容页
 
         Args:
             content: 包含title, content(要点列表)
+            image_path: 图片路径(可选)
         """
         slide = self.prs.slides.add_slide(self.prs.slide_layouts[6])
 
@@ -234,15 +248,23 @@ class PPTGenerator:
         line.fill.fore_color.rgb = colors["accent"]
         line.line.fill.background()
 
-        # 内容区域
+        # 判断是否有图片
+        if image_path and os.path.exists(image_path):
+            # 有图片:左侧内容,右侧图片
+            self._add_content_with_image(slide, content, image_path, colors, fonts)
+        else:
+            # 无图片:全宽内容
+            self._add_content_only(slide, content, colors, fonts)
+
+    def _add_content_only(self, slide, content: Dict, colors: Dict, fonts: Dict) -> None:
+        """添加纯文本内容"""
         content_box = slide.shapes.add_textbox(
             Inches(1), Inches(1.6), Inches(8), Inches(3.5)
         )
         content_frame = content_box.text_frame
         content_frame.word_wrap = True
-        content_frame.vertical_anchor = 1  # 顶部对齐
+        content_frame.vertical_anchor = 1
 
-        # 添加要点
         points = content.get("content", [])
         for i, point in enumerate(points):
             if i > 0:
@@ -256,6 +278,72 @@ class PPTGenerator:
             p.font.color.rgb = colors["text"]
             p.space_before = Pt(12) if i > 0 else Pt(0)
             p.line_spacing = 1.3
+
+    def _add_content_with_image(
+        self,
+        slide,
+        content: Dict,
+        image_path: str,
+        colors: Dict,
+        fonts: Dict
+    ) -> None:
+        """添加图文混排内容"""
+        # 左侧文本区域(更窄)
+        content_box = slide.shapes.add_textbox(
+            Inches(0.5), Inches(1.6), Inches(4.5), Inches(3.5)
+        )
+        content_frame = content_box.text_frame
+        content_frame.word_wrap = True
+        content_frame.vertical_anchor = 1
+
+        points = content.get("content", [])
+        for i, point in enumerate(points):
+            if i > 0:
+                p = content_frame.add_paragraph()
+            else:
+                p = content_frame.paragraphs[0]
+
+            p.text = f"• {point}"
+            p.font.name = fonts["content"]
+            p.font.size = Pt(16)  # 稍小一点
+            p.font.color.rgb = colors["text"]
+            p.space_before = Pt(10) if i > 0 else Pt(0)
+            p.line_spacing = 1.2
+
+        # 右侧图片
+        try:
+            from PIL import Image
+
+            # 获取图片尺寸
+            img = Image.open(image_path)
+            img_width, img_height = img.size
+            aspect_ratio = img_width / img_height
+
+            # 计算合适的显示尺寸
+            max_width = Inches(4.5)
+            max_height = Inches(3.5)
+
+            if aspect_ratio > 1:  # 横图
+                pic_width = max_width
+                pic_height = pic_width / aspect_ratio
+            else:  # 竖图
+                pic_height = max_height
+                pic_width = pic_height * aspect_ratio
+
+            # 居中对齐
+            left = Inches(5.5) + (max_width - pic_width) / 2
+            top = Inches(1.6) + (max_height - pic_height) / 2
+
+            # 插入图片
+            slide.shapes.add_picture(
+                image_path,
+                left, top,
+                width=pic_width,
+                height=pic_height
+            )
+
+        except Exception as e:
+            print(f"      ⚠️  图片插入失败: {str(e)}")
 
     def add_conclusion_slide(self, content: Dict) -> None:
         """
@@ -316,10 +404,10 @@ class PPTGenerator:
                 p.space_before = Pt(8) if i > 0 else Pt(0)
 
     def add_custom_slide(
-            self,
-            title: str,
-            content: List[str],
-            layout: str = "content"
+        self,
+        title: str,
+        content: List[str],
+        layout: str = "content"
     ) -> None:
         """
         添加自定义幻灯片

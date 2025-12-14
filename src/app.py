@@ -8,25 +8,23 @@ import gradio as gr
 from dotenv import load_dotenv
 import json
 from datetime import datetime
-from utils.helpers import (
-    ensure_dir,
-    save_json,
-    format_timestamp,
-    estimate_generation_time,
-    format_time,
-    summarize_outline,
-    create_progress_bar,
-    Logger
-)
 
 # 添加src到路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from main import SlideCrafter
+from utils.helpers import (
+    ensure_dir,
+    estimate_generation_time,
+    format_time,
+    summarize_outline
+)
+
+load_dotenv()
 
 # 全局变量存储当前会话
 current_session = {
-    "crafter": None, # SlideCrafter实例
+    "crafter": None,
     "outline": None,
     "contents": [],
     "ppt_path": None,
@@ -49,7 +47,7 @@ def initialize_crafter():
     return "✅ 系统已就绪"
 
 
-def generate_ppt(topic, num_slides, style, template, progress=gr.Progress()):
+def generate_ppt(topic, num_slides, style, template, add_images, progress=gr.Progress()):
     """
     生成PPT的主函数
 
@@ -58,6 +56,7 @@ def generate_ppt(topic, num_slides, style, template, progress=gr.Progress()):
         num_slides: 页数
         style: 风格
         template: 模板
+        add_images: 是否添加配图
         progress: Gradio进度条
 
     Returns:
@@ -79,53 +78,49 @@ def generate_ppt(topic, num_slides, style, template, progress=gr.Progress()):
 
         # 估算时间
         estimated_time = estimate_generation_time(num_slides)
-        status_msg = f"🚀 开始生成PPT...\n⏱️ 预计用时: {format_time(estimated_time)}"
+        if add_images:
+            estimated_time += num_slides * 3
 
-        # 步骤1: 生成大纲
-        progress(0.2, desc="生成大纲中...")
-        outline = crafter.agent.generate_outline(topic, num_slides, style)
+        status_msg = f"🚀 开始生成PPT...\n⏱️ 预计用时: {format_time(estimated_time)}\n"
+
+        # 直接调用主程序的generate_ppt方法
+        progress(0.1, desc="生成中...")
+
+        ppt_path = crafter.generate_ppt(
+            topic=topic,
+            num_slides=num_slides,
+            style=style,
+            template=template,
+            save_intermediate=True,
+            add_images=add_images
+        )
+
+        # 获取生成的大纲和内容
+        outline = crafter.agent.last_outline
+        contents = crafter.agent.last_contents
+
         current_session["outline"] = outline
+        current_session["contents"] = contents
+        current_session["ppt_path"] = ppt_path
 
+        # 生成大纲预览
         outline_preview = f"""
-            📋 **大纲预览**
-            
-            **标题:** {outline['title']}
-            **总页数:** {len(outline['slides'])}
-            
-            **页面结构:**
+        📋 **大纲预览**
+        
+        **标题:** {outline['title']}
+        **总页数:** {len(outline['slides'])}
+        
+        **页面结构:**
         """
         for slide in outline["slides"]:
             outline_preview += f"\n{slide['page']}. {slide['title']} ({slide['type']})"
 
         status_msg += f"\n✅ 大纲生成完成 ({len(outline['slides'])}页)"
-
-        # 步骤2: 生成内容
-        contents = []
-        total_slides = len(outline["slides"])
-
-        for i, slide_info in enumerate(outline["slides"], 1):
-            progress((0.2 + 0.6 * i / total_slides), desc=f"生成第{i}/{total_slides}页...")
-
-            content = crafter.agent.generate_slide_content(
-                slide_info,
-                topic,
-                total_slides,
-                style
-            )
-            contents.append(content)
-
-        current_session["contents"] = contents
         status_msg += f"\n✅ 所有内容生成完成"
 
-        # 步骤3: 创建PPT
-        progress(0.9, desc="创建PPT文件...")
-        from generators.ppt_generator import PPTGenerator
-        generator = PPTGenerator(template=template)
-        ppt_path = generator.create_presentation(outline, contents)
+        if add_images:
+            status_msg += f"\n✅ 配图搜索完成"
 
-        current_session["ppt_path"] = ppt_path
-
-        # 完成
         status_msg += f"\n\n🎉 **PPT生成成功!**\n📁 文件: {ppt_path}"
 
         return (
@@ -136,7 +131,8 @@ def generate_ppt(topic, num_slides, style, template, progress=gr.Progress()):
         )
 
     except Exception as e:
-        error_msg = f"❌ 生成失败: {str(e)}"
+        import traceback
+        error_msg = f"❌ 生成失败: {str(e)}\n\n详细错误:\n{traceback.format_exc()}"
         return error_msg, "", None, gr.update(visible=False)
 
 
@@ -230,8 +226,6 @@ def regenerate_slide(slide_number):
         return f"❌ 重新生成失败: {str(e)}"
 
 
-
-
 def view_slide_content(slide_number):
     """
     查看指定页面的内容
@@ -254,12 +248,12 @@ def view_slide_content(slide_number):
         content = current_session["contents"][slide_idx]
 
         preview = f"""
-        📄 **第{slide_number}页内容**
-        
-            **标题:** {content.get('title', '')}
-            
-            **内容:**
-        """
+📄 **第{slide_number}页内容**
+
+**标题:** {content.get('title', '')}
+
+**内容:**
+"""
         for i, point in enumerate(content.get('content', []), 1):
             preview += f"\n{i}. {point}"
 
@@ -272,16 +266,19 @@ def view_slide_content(slide_number):
         return f"❌ 查看失败: {str(e)}"
 
 
+# 创建Gradio界面
 def create_interface():
     """创建Gradio界面"""
+
     # 确保输出目录存在
     ensure_dir("output")
     ensure_dir("output/logs")
+    ensure_dir("output/image_cache")
 
     with gr.Blocks(
-            title="SlideCraft AI - AI驱动的PPT生成系统",
-            theme=gr.themes.Soft(),
-            css="""
+        title="SlideCraft AI - AI驱动的PPT生成系统",
+        theme=gr.themes.Soft(),
+        css="""
         .main-header {
             text-align: center;
             padding: 20px;
@@ -298,11 +295,13 @@ def create_interface():
         }
         """
     ) as app:
+
         # 标题
         gr.HTML("""
         <div class="main-header">
             <h1>🎨 SlideCraft AI</h1>
             <p>AI驱动的智能PPT生成系统</p>
+            <p style="font-size: 0.9em; margin-top: 10px;">支持DeepSeek / OpenAI | 智能配图 | 多轮对话</p>
         </div>
         """)
 
@@ -340,6 +339,13 @@ def create_interface():
                         label="视觉模板"
                     )
 
+                with gr.Row():
+                    add_images_checkbox = gr.Checkbox(
+                        label="🖼️ 自动配图",
+                        value=False,
+                        info="为内容页自动搜索和添加相关图片(需要配置图片API或使用占位图)"
+                    )
+
                 generate_btn = gr.Button("🚀 生成PPT", variant="primary", size="lg")
 
                 gr.Markdown("## 生成结果")
@@ -368,7 +374,7 @@ def create_interface():
                 # 绑定生成按钮
                 generate_btn.click(
                     fn=generate_ppt,
-                    inputs=[topic_input, num_slides, style_dropdown, template_dropdown],
+                    inputs=[topic_input, num_slides, style_dropdown, template_dropdown, add_images_checkbox],
                     outputs=[status_output, outline_output, download_file, download_file]
                 )
 
@@ -440,36 +446,50 @@ def create_interface():
             with gr.Tab("❓ 使用帮助"):
                 gr.Markdown("""
                 # 📖 使用指南
-
+                
                 ## 🚀 快速开始
-
+                
                 1. **生成PPT**
                    - 在"生成PPT"标签页输入主题
                    - 选择页数、风格和模板
+                   - 选择是否启用自动配图
                    - 点击"生成PPT"按钮
                    - 等待生成完成后下载
-
+                
                 2. **编辑PPT**
                    - 在"编辑PPT"标签页查看各页内容
                    - 输入页码和修改要求
                    - 点击"修改内容"或"重新生成"
-
+                
                 ## 🎨 风格说明
-
+                
                 - **Professional (专业)**: 适合商务汇报、工作总结
                 - **Creative (创意)**: 适合创意展示、产品发布
                 - **Academic (学术)**: 适合学术报告、论文展示
                 - **Startup (创业)**: 适合融资路演、商业计划
                 - **Teaching (教学)**: 适合课程教学、培训演示
-
+                
                 ## 📄 模板说明
-
+                
                 - **Business (商务)**: 深蓝色调,简洁专业
                 - **Creative (创意)**: 多彩设计,活泼生动
                 - **Academic (学术)**: 灰蓝色调,严谨规范
-
+                
+                ## 🖼️ 配图功能
+                
+                1. **如何启用**: 勾选"自动配图"复选框
+                2. **图片来源**: 
+                   - 配置了API: 使用Unsplash/Pexels真实图片
+                   - 未配置: 使用Lorem Picsum占位图
+                3. **API配置**: 在.env文件中设置:
+                   ```
+                   UNSPLASH_ACCESS_KEY=your_key
+                   PEXELS_API_KEY=your_key
+                   ```
+                4. **注意**: 配图会增加生成时间(每页约3秒)
+                
                 ## 💡 使用技巧
-
+                
                 1. **主题要具体**: "人工智能在医疗诊断中的应用" 比 "人工智能" 效果更好
                 2. **合理页数**: 
                    - 简短汇报: 5-8页
@@ -480,30 +500,46 @@ def create_interface():
                    - "换一个案例"
                    - "更简洁一些"
                    - "补充技术细节"
-
+                
                 ## ⚙️ 系统要求
-
-                - 需要OpenAI API密钥
-                - 建议使用GPT-4o模型
+                
+                - 需要DeepSeek或OpenAI API密钥
+                - 建议使用deepseek-chat或gpt-4o模型
                 - 网络连接稳定
-
+                
                 ## 🐛 常见问题
-
+                
                 **Q: 生成失败怎么办?**
-                A: 检查API密钥配置,确保网络连接正常
-
+                A: 检查API密钥配置,确保网络连接正常,查看日志output/logs/
+                
                 **Q: 如何提高生成质量?**
                 A: 提供更详细的主题描述,选择合适的风格
-
+                
+                **Q: 配图功能不工作?**
+                A: 未配置API会使用占位图,这是正常的。如需真实图片请配置Unsplash/Pexels API
+                
                 **Q: 可以保存中间结果吗?**
                 A: 可以,所有大纲和内容会保存在output/logs目录
-
+                
                 ## 📞 反馈与支持
-
+                
                 遇到问题或有建议?
                 - 查看日志: output/logs/
                 - GitHub Issues
                 - 邮件联系
+                
+                ## 🔧 命令行使用
+                
+                ```bash
+                # 基本使用
+                python src/main.py "AI技术发展" -n 8
+                
+                # 带配图
+                python src/main.py "AI在医疗中的应用" -n 10 --add-images
+                
+                # 指定风格和模板
+                python src/main.py "区块链技术" -n 12 -s startup -t creative
+                ```
                 """)
 
         # 页面加载时初始化
@@ -512,6 +548,11 @@ def create_interface():
     return app
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app = create_interface()
-    app.launch(server_name="0.0.0.0", server_port=7860, share=True,show_error=True)
+    app.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=False,
+        show_error=True
+    )
