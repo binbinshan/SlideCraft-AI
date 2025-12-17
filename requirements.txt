@@ -3,6 +3,8 @@ python-pptx==1.0.2
 openai==1.58.1
 langchain==0.3.13
 langchain-openai==0.2.14
+langchain-core==0.3.27
+langgraph==0.2.55
 
 # UI
 gradio==6.1.0
@@ -12,7 +14,10 @@ pillow==11.0.0
 requests==2.32.3
 python-dotenv==1.0.1
 httpx[socks]  # 支持SOCKS代理
+aiofiles==24.1.0  # 异步文件操作
 
+# Optional for visualization
+mermaid-py==0.3.0  # 工作流可视化
 
 # Development
 pytest==8.3.4
